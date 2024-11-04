@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="./libs/d3.js"></script>
+    <script src="libs/d3jstopojson.v1.js"></script>
+    <title>Major Assignment</title>
+    <style>
+        #tooltip {
+            position: absolute;
+            opacity: 0;
+            top: 0;
+            left: 0;
+            width: auto;
+            padding: 10px;
+            background: antiquewhite;
+            font-family: Georgia, 'Times New Roman', Times, serif;
+            font-size: medium;
+            border: 2px solid black;
+            line-height: 1;
+        }
+
+        path {
+            stroke-width: .5px;
+            stroke: black;
+        }
+
+        path:hover {
+            opacity: .8;
+            stroke: red;
+            stroke-width: 2px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: azure;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="tooltip"></div>
+    <div class="container">
+        <h1> Major Assignment 2 </h1>
+        <h3> Name: Alisha Tak</h3>
+        <div class="fig1"></div>
+        <div class="fig2"></div>
+        <div class="fig3"></div>
+    </div>
+
+    <script>
+        const window_dims = {
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+        const svgWidth = window_dims.width / 2;
+        const svgHeight = window_dims.width / 3;
+
+        const geo_json = "./data/towns.topojson";
+
+        d3.json(geo_json).then(topoData => {
+            const width = svgWidth, height = svgHeight;
+
+            const geoJson = topojson.feature(topoData, topoData.objects.ma);
+
+            const projections = [
+                d3.geoAzimuthalEqualArea(), //Azimuthal projections project the sphere directly onto a plane.
+                d3.geoAlbersUsa(), // USA conic projection
+                d3.geoAlbers(), // equal-area conic projection
+                d3.geoMercator(), // cylindrical projection
+                d3.geoNaturalEarth1(), // pseudocylindrical projection designed by Tom Patterson
+                d3.geoEqualEarth(), // Equal Earth projection, by Bojan Šavrič et al., 2018.
+                d3.geoConicEqualArea(), //equal-area conic projection
+                d3.geoEquirectangular(), //Cylindrical Projections
+                d3.geoOrthographic()
+            ]
+
+            const pathGenerator = d3.geoPath()
+                .projection(projections[3].fitSize([width - 30, height - 30], geoJson))
+
+
+            // color scaling
+            const pop1980ColorScale = d3.scaleSequential(d3.interpolateBlues)
+                .domain(d3.extent(geoJson.features, d => d.properties.POP1980));
+
+            const popChangeColorScale = d3.scaleSequential(d3.interpolateRgbBasis(['#d73027', '#fc8d59', '#fee090', '#e0f3f8', '#91bfdb', '#4575b4'].reverse()))
+                .domain(d3.extent(geoJson.features, d => d.properties.POP2010 - d.properties.POP1980));
+
+
+            // Load Gini Index data
+            d3.csv("./data/gini_index.csv").then(giniData => {
+                let giniIndexMap = {};
+                let idToCountyMap ={};
+                let domainMin = Number.MAX_VALUE, domainMax = Number.MIN_VALUE;
+                giniData.forEach(d => {
+                 
+                    let GiniCountyId = d["id"].split("US")[1].trim();
+
+                    idToCountyMap[GiniCountyId] = d["Geographic Area Name"].split(",")[0].trim();
+
+
+                    if (!giniIndexMap[GiniCountyId]) giniIndexMap[GiniCountyId] = {}
+                    giniIndexMap[GiniCountyId][d["year"]] = +d["Estimate!!Gini Index"];
+                    if (d["year"] == 2019) {
+                        if (domainMin > d["Estimate!!Gini Index"]) domainMin = d["Estimate!!Gini Index"];
+                        if (domainMax < d["Estimate!!Gini Index"]) domainMax = d["Estimate!!Gini Index"];
+                        //giniIndexMap[d["Geographic Area Name"].split("County")[0].trim().toUpperCase()] = +d["Estimate!!Gini Index"];
+                    }
+                });
+                
+
+                const giniColorScale = d3.scaleSequential().interpolator(d3.interpolateHsl("cyan", "Blue"))
+                    .domain([domainMin, domainMax])
+
+
+                const createMap = (container, colorScale, dataKey, label, externalData = null, idToCountyMap = null) => {
+                    const svg = d3.select(container).append("svg")
+                        .attr("width", width)
+                        .attr("height", height);
+
+
+                    svg.selectAll("path")
+                        .data(geoJson.features)
+                        .enter()
+                        .append("path")
+                        .attr("d", d => pathGenerator(d))
+                        //.attr("d", pathGenerator)
+                        .attr("fill", d => {
+
+                            const value = dataKey === "GiniIndex2019" ? externalData[d.properties.FIPS_STCO] ? externalData[d.properties.FIPS_STCO][2019] : d.properties[dataKey] : d.properties[dataKey];
+                            return colorScale(value);
+                        })
+
+                        .attr("stroke", "black")
+                        .on("mouseenter", function (event, d) {
+                            let tooltipContent;
+                            if (dataKey === "GiniIndex2019") {
+                                tooltipContent   = `<b>County Name: ${idToCountyMap[d.properties.FIPS_STCO]} </b> <br />`
+                                if(!externalData[d.properties.FIPS_STCO]) {
+                                    tooltipContent += `
+                                Data not available
+                                <br />
+                                `
+                                }
+                                for (let key in externalData[d.properties.FIPS_STCO]) {
+                                    if (key == 2019) {
+                                        tooltipContent += `<b>
+                                Year: ${key}
+                                Gini: ${externalData[d.properties.FIPS_STCO][key]}
+                                </b>
+                                <br />
+                                `
+                                    } else {
+                                        tooltipContent += `
+                                Year: ${key}
+                                Gini: ${externalData[d.properties.FIPS_STCO][key]}
+                                <br />
+                                `
+                                    }
+                                }
+                            }
+                            const value = dataKey === "GiniIndex2019" ? externalData[d.properties.TOWN] : d.properties[dataKey];
+                            d3.select(this)
+                                .attr("stroke", "red")
+                                .attr("stroke-width", 2);
+
+                            if (dataKey === "GiniIndex2019") {
+                                d3.select("#tooltip")
+                                    .html(tooltipContent)
+                                    .style("left", (event.pageX + 5) + "px")
+                                    .style("top", (event.pageY - 28) + "px")
+                                    .transition()
+                                    .duration(500)
+                                    .style("opacity", .9)
+                            }
+                            else {
+                                d3.select("#tooltip")
+                                    .html(`Town: ${d.properties.TOWN}<br>${label}: ${value}`)
+                                    .style("left", (event.pageX + 5) + "px")
+                                    .style("top", (event.pageY - 28) + "px")
+                                    .transition()
+                                    .duration(200)
+                                    .style("opacity", .9)
+
+                            }
+
+                        })
+                        .on("mouseout", function () {
+                            d3.select(this)
+                                .attr("stroke", "black")
+                                .attr("stroke-width", 0.5);
+                            d3.select("#tooltip").style("opacity", 0)
+                            
+                        });
+
+
+                };
+
+                // MAP A: Population in 1980
+                createMap(".fig1", pop1980ColorScale, "POP1980", "Population (1980)");
+
+                // MAP B: Population change between 1980 and 2010
+                createMap(".fig2", popChangeColorScale, "POP2010", "Population Change (1980-2010)");
+
+                // MAP C: Gini Index in 2019
+                createMap(".fig3", giniColorScale, "GiniIndex2019", "Gini Index (2019)", giniIndexMap, idToCountyMap);
+            });
+        });
+    </script>
+</body>
+
+</html>
