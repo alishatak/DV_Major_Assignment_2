@@ -89,6 +89,7 @@
             const pop1980ColorScale = d3.scaleSequential(d3.interpolateBlues)
                 .domain(d3.extent(geoJson.features, d => d.properties.POP1980));
 
+
             const popChangeColorScale = d3.scaleSequential(d3.interpolateRgbBasis(['#d73027', '#fc8d59', '#fee090', '#e0f3f8', '#91bfdb', '#4575b4'].reverse()))
                 .domain(d3.extent(geoJson.features, d => d.properties.POP2010 - d.properties.POP1980));
 
@@ -96,10 +97,10 @@
             // Load Gini Index data
             d3.csv("./data/gini_index.csv").then(giniData => {
                 let giniIndexMap = {};
-                let idToCountyMap ={};
+                let idToCountyMap = {};
                 let domainMin = Number.MAX_VALUE, domainMax = Number.MIN_VALUE;
                 giniData.forEach(d => {
-                 
+
                     let GiniCountyId = d["id"].split("US")[1].trim();
 
                     idToCountyMap[GiniCountyId] = d["Geographic Area Name"].split(",")[0].trim();
@@ -113,7 +114,7 @@
                         //giniIndexMap[d["Geographic Area Name"].split("County")[0].trim().toUpperCase()] = +d["Estimate!!Gini Index"];
                     }
                 });
-                
+
 
                 const giniColorScale = d3.scaleSequential().interpolator(d3.interpolateHsl("cyan", "Blue"))
                     .domain([domainMin, domainMax])
@@ -137,70 +138,127 @@
                             return colorScale(value);
                         })
 
+
                         .attr("stroke", "black")
                         .on("mouseenter", function (event, d) {
-                            let tooltipContent;
-                            if (dataKey === "GiniIndex2019") {
-                                tooltipContent   = `<b>County Name: ${idToCountyMap[d.properties.FIPS_STCO]} </b> <br />`
-                                if(!externalData[d.properties.FIPS_STCO]) {
-                                    tooltipContent += `
-                                Data not available
-                                <br />
-                                `
-                                }
-                                for (let key in externalData[d.properties.FIPS_STCO]) {
-                                    if (key == 2019) {
-                                        tooltipContent += `<b>
-                                Year: ${key}
-                                Gini: ${externalData[d.properties.FIPS_STCO][key]}
-                                </b>
-                                <br />
-                                `
-                                    } else {
-                                        tooltipContent += `
-                                Year: ${key}
-                                Gini: ${externalData[d.properties.FIPS_STCO][key]}
-                                <br />
-                                `
+                            if(dataKey == "POP2010"){
+                                        d3.select("#tooltip")
+                                            .html(`Town: ${d.properties.TOWN}<br />Population (1980): ${d.properties.POP1980}<br />Population (2010): ${d.properties.POP2010}<br />${label}: ${d.properties.POP2010 - d.properties.POP1980}`)
+                                            .style("left", (event.pageX + 5) + "px")
+                                            .style("top", (event.pageY - 28) + "px")
+                                            .transition()
+                                            .duration(200)
+                                            .style("opacity", .9)
+        
+        
                                     }
-                                }
-                            }
-                            const value = dataKey === "GiniIndex2019" ? externalData[d.properties.TOWN] : d.properties[dataKey];
-                            d3.select(this)
-                                .attr("stroke", "red")
-                                .attr("stroke-width", 2);
+                            if(dataKey == "POP1980"){
+                                        d3.select("#tooltip")
+                                            .html(`Town: ${d.properties.TOWN}<br> Population (1980): ${d.properties.POP1980}`)
+                                            .style("left", (event.pageX + 5) + "px")
+                                            .style("top", (event.pageY - 28) + "px")
+                                            .transition()
+                                            .duration(200)
+                                            .style("opacity", .9)
+        
+                                    }
 
-                            if (dataKey === "GiniIndex2019") {
+                            const countyId = d.properties.FIPS_STCO;
+                            const countyName = idToCountyMap[countyId];
+                            const giniData = giniIndexMap[countyId];
+                            let tooltipContent = `<b>County Name: ${countyName}</b> <br />`;
+
+                            if (!giniData) {
+                                tooltipContent += `Data not available<br />`;
                                 d3.select("#tooltip")
                                     .html(tooltipContent)
-                                    .style("left", (event.pageX + 5) + "px")
+                                    .style("left", (event.pageX + 8) + "px")
                                     .style("top", (event.pageY - 28) + "px")
                                     .transition()
                                     .duration(500)
-                                    .style("opacity", .9)
+                                    .style("opacity", 0.9);
+                                return;
                             }
-                            else {
-                                d3.select("#tooltip")
-                                    .html(`Town: ${d.properties.TOWN}<br>${label}: ${value}`)
-                                    .style("left", (event.pageX + 5) + "px")
-                                    .style("top", (event.pageY - 28) + "px")
-                                    .transition()
-                                    .duration(200)
-                                    .style("opacity", .9)
-
+                            
+                            // Add Gini Index data for all years as text
+                            tooltipContent += `<b>Gini Index Data:</b><br />`;
+                            for (let year in giniData) {
+                                tooltipContent += `Year: ${year}, Gini: ${giniData[year]}<br />`;
                             }
+                            
 
+                            // Add placeholder for line chart
+                            tooltipContent += `<svg id="lineChart" width="200" height="120"></svg>`;
+
+                            d3.select("#tooltip")
+                                .html(tooltipContent)
+                                .style("left", (event.pageX + 5) + "px")
+                                .style("top", (event.pageY - 28) + "px")
+                                .transition()
+                                .duration(500)
+                                .style("opacity", 0.9);
+
+                            // Extract temporal data for the chart
+                            const chartData = Object.keys(giniData).map(year => ({
+                                year: +year,
+                                gini: giniData[year]
+                            })).sort((a, b) => a.year - b.year);
+
+                            // Create scales for the line chart
+                            const xScale = d3.scaleLinear()
+                                .domain(d3.extent(chartData, d => d.year))
+                                .range([30, 180]);
+                            const yScale = d3.scaleLinear()
+                                .domain([d3.min(chartData, d => d.gini), d3.max(chartData, d => d.gini)])
+                                .range([100, 20]);
+
+                            const line = d3.line()
+                                .x(d => xScale(d.year))
+                                .y(d => yScale(d.gini))
+                                .curve(d3.curveMonotoneX);
+
+                            // Render the line chart in the tooltip
+                            const svg = d3.select("#lineChart");
+                            svg.append("path")
+                                .datum(chartData)
+                                .attr("d", line)
+                                .attr("fill", "none")
+                                .attr("stroke", "blue")
+                                .attr("stroke-width", 2);
+
+                            svg.selectAll("circle")
+                                .data(chartData)
+                                .enter()
+                                .append("circle")
+                                .attr("cx", d => xScale(d.year))
+                                .attr("cy", d => yScale(d.gini))
+                                .attr("r", 3)
+                                .attr("fill", "red");
+
+                            
+
+                            // Add X-axis
+                            svg.append("g")
+                                .attr("transform", "translate(0,100)")
+                                .call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.format("d"))
+   
+                                );
+
+                            // Add Y-axis
+                            svg.append("g")
+                                .attr("transform", "translate(30,0)")
+                                .call(d3.axisLeft(yScale).ticks(5));
                         })
                         .on("mouseout", function () {
                             d3.select(this)
                                 .attr("stroke", "black")
                                 .attr("stroke-width", 0.5);
-                            d3.select("#tooltip").style("opacity", 0)
-                            
+                            d3.select("#tooltip").style("opacity", 0);
                         });
-
-
                 };
+
+
+
 
                 // MAP A: Population in 1980
                 createMap(".fig1", pop1980ColorScale, "POP1980", "Population (1980)");
